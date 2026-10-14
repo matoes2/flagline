@@ -1,7 +1,7 @@
 /* Flagline service worker: opens the app instantly and keeps it working offline.
    The build stamp below changes whenever the app changes, which creates a fresh
    cache and retires the old one. Nothing here talks to any other website. */
-const BUILD = '19f1d35a';
+const BUILD = '53224cfa';
 const CACHE = 'flagline-' + BUILD;
 const CORE = ["./index.html","./manifest.json","./favicon.svg","./apple-touch-icon.png","./icon-192.png"];
 

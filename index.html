@@ -11,7 +11,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Flagline">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="format-detection" content="telephone=no">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Flagline">
@@ -21,6 +21,7 @@
 <link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
 <link rel="icon" href="favicon-48.png" sizes="48x48" type="image/png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
+<!-- Solid (black) status bar on purpose: with black-translucent + viewport-fit=cover, iOS 26 home-screen apps can paint about one status-bar height short of the screen bottom (WebKit bug 301108), which leaves an empty strip under the tab bar. iOS reads this setting when the app is added to the Home Screen. -->
 <!-- Fonts: Barlow Condensed (c) The Barlow Project Authors, Manrope (c) The Manrope Project Authors. SIL Open Font License 1.1, see FONTS-LICENSE.txt -->
 <style>
 img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}
@@ -375,14 +376,17 @@ b{font-weight:800}
 @media (max-height:700px){.t-fig{display:none}.t-ring{width:min(62vw,250px)}}
 
 /* ---------- standalone website layout (not part of the Claude artifact build) ----------
-   Everything lives in one fixed "stage" the size of the screen. iPhone home-screen apps can report a
-   layout height shorter than the screen (see Host.fit in host.js), so the stage takes its height from
-   --app-h when that is set, and the sheets and overlays are positioned inside it rather than on the
-   window. The stage pads itself for the status bar; the tab bar extends under the home indicator. */
+   Everything lives in one fixed "stage" that is exactly the size of the layout viewport, which is the
+   part of the screen the browser really paints. iPhone home-screen apps can paint less than the whole
+   screen (see Host.fit in host.js), and anything laid out past the painted edge is simply invisible, so
+   nothing here is ever sized to the screen: the stage follows the window, the sheets and overlays sit
+   inside it, and the tab bar rests on its bottom edge. The stage pads itself for the status bar. */
 html,body{margin:0;height:100%;overflow:hidden;background:var(--bg)}
 a{color:inherit}
-#stage{position:fixed;top:0;left:0;right:0;height:var(--app-h,100%);overflow:hidden;background:var(--bg);padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) 0 env(safe-area-inset-left,0px)}
+#stage{position:fixed;top:0;left:0;right:0;bottom:0;overflow:hidden;background:var(--bg);padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) 0 env(safe-area-inset-left,0px)}
 #stage .over,#stage .scrim,#stage .sheet,#stage .toast{position:absolute}
+/* Room kept under bottom bars for the home indicator: 60% of the inset (the indicator pill only needs
+   about half of it). Host.fit overrides this when the page already ends above the indicator. */
 :root{--sab:calc(env(safe-area-inset-bottom,0px)*.6)}
 .tabs{padding-bottom:var(--sab)}
 /* tablets, desktops and phones held sideways: keep the phone layout in a centred column */
@@ -1148,7 +1152,7 @@ const KEY = 'flagline.v1';
 // Build flag: the standalone website build (GitHub Pages) flips this to true. It hides the
 // Claude-only cloud save and switches on the install prompt and offline service worker.
 const HOSTED = true;
-const BUILD = '19f1d35a'; // stamped by the site builder; shown at the foot of Settings
+const BUILD = '53224cfa'; // stamped by the site builder; shown at the foot of Settings
 const blank = () => ({
   v: 1, updatedAt: 0, createdAt: Date.now(), level: 1, startedOn: dkey(), ms: {}, rot: {}, swaps: {}, hist: [], active: null, best: {},
   prefs: { sound: true, vibe: true, prep: 5, wake: true, days: [1, 3, 5], onboarded: false }
@@ -2235,43 +2239,55 @@ const Host = {
     try { p.prompt(); const r = await p.userChoice; return !!r && r.outcome === 'accepted'; } catch (e) { return false; }
   },
 
-  /* iPhone home-screen apps can report a layout height shorter than the screen (roughly the status
-     bar height short), which leaves the tab bar floating above an empty band. On a phone the web view
-     always covers the whole screen, so the screen size is the reliable height: use whichever is larger.
-     The stage in host.css takes its height from --app-h when it is set. */
+  /* iPhone home-screen apps can paint less than the whole screen. With a translucent status bar the web
+     view starts at the top of the screen but can end about one status-bar height above the bottom edge
+     (WebKit bug 301108), and the home indicator then sits in the empty strip under the page, where
+     nothing can be drawn. Whatever is laid out past the painted edge is invisible, so nothing is ever
+     sized to the screen: window.innerHeight is exactly the painted part and the stage follows it
+     (host.css). The one thing left to adjust is the home-indicator room kept under bottom bars (--sab):
+     none is needed when the page already ends above the indicator. */
   fit() {
     const root = document.documentElement;
-    let h = 0;
+    let px = -1;
     try {
       if (window.navigator.standalone === true && Math.min(screen.width, screen.height) < 600) {
+        const ins = this.insets();
         const land = window.innerWidth > window.innerHeight;
         const edge = land ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height);
-        h = Math.max(window.innerHeight || 0, (window.visualViewport && window.visualViewport.height) || 0, edge || 0);
+        // A top inset above 0 means the page runs under the status bar, so the web view starts at the very
+        // top of the screen and whatever is missing from its height is missing at the bottom.
+        const gap = ins.top > 0 && !land ? Math.max(0, edge - window.innerHeight) : 0;
+        px = Math.max(0, ins.bottom - gap) * 0.6; // 0.6: same share of the inset as --sab in host.css
       }
-    } catch (e) { h = 0; }
-    if (h > 0) root.style.setProperty('--app-h', Math.round(h) + 'px'); else root.style.removeProperty('--app-h');
+    } catch (e) { px = -1; }
+    if (px >= 0) root.style.setProperty('--sab', px.toFixed(1) + 'px'); else root.style.removeProperty('--sab');
   },
-  // safe-area insets as the browser reports them right now (top, bottom)
+  // safe-area insets as the browser reports them right now, in px
   insets() {
+    // written out in full so the test server can swap in fake values the same way it does for the CSS
+    const ENV = { top: 'env(safe-area-inset-top,0px)', right: 'env(safe-area-inset-right,0px)', bottom: 'env(safe-area-inset-bottom,0px)', left: 'env(safe-area-inset-left,0px)' };
     const probe = (side) => {
       try {
+        const wide = side === 'left' || side === 'right';
         const el = document.createElement('div');
-        el.style.cssText = 'position:fixed;left:0;top:0;width:0;visibility:hidden;pointer-events:none;height:env(safe-area-inset-' + side + ',0px)';
+        el.style.cssText = 'position:fixed;left:0;top:0;visibility:hidden;pointer-events:none;' + (wide ? 'height:0;width:' : 'width:0;height:') + ENV[side];
         document.body.appendChild(el);
-        const v = el.offsetHeight; el.remove();
+        const v = wide ? el.offsetWidth : el.offsetHeight; el.remove();
         return v;
-      } catch (e) { return '?'; }
+      } catch (e) { return 0; }
     };
-    return [probe('top'), probe('bottom')];
+    return { top: probe('top'), right: probe('right'), bottom: probe('bottom'), left: probe('left') };
   },
   // shown when the version line in Settings is tapped, so a layout problem can be reported with real numbers
   diag() {
     const st = document.getElementById('stage');
+    const tb = document.querySelector('.tabs');
     const ins = this.insets();
     const vv = window.visualViewport;
+    const room = tb ? Math.round(parseFloat(getComputedStyle(tb).paddingBottom) || 0) : '?';
     return 'window ' + innerWidth + '×' + innerHeight + (vv ? ' · visual ' + Math.round(vv.width) + '×' + Math.round(vv.height) : '') +
       ' · stage ' + (st ? st.clientWidth + '×' + st.clientHeight : '?') + ' · screen ' + screen.width + '×' + screen.height +
-      ' · insets ' + ins[0] + '/' + ins[1] + ' · ' + (this.standalone() ? 'installed app' : 'browser');
+      ' · insets ' + ins.top + '/' + ins.bottom + ' · bar room ' + room + ' · ' + (this.standalone() ? 'installed app' : 'browser');
   },
   // true when nothing is in progress, so a silent reload cannot disturb the person
   idle() {

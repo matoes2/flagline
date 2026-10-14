@@ -42,7 +42,7 @@ Every link inside the app is relative, so it works under any repository name, at
 
 ## Updating later
 
-Upload the new files over the old ones (same names replace the old ones) and commit. Anyone using the app picks up the new version the next time they open it while online, and a small "New version ready" message appears. Reload once to switch over. The version number is shown at the bottom of **Progress, Settings**.
+Upload the new files over the old ones (same names replace the old ones) and commit. The next time the app is opened while online it picks up the new version by itself within a few seconds. If you are in the middle of a workout it shows a "New version ready" note instead, and you can reload whenever you like. The version number is at the bottom of **Progress, Settings**. Tap it to see the screen and safe-area numbers the app is working with, which helps if something ever looks off on a particular phone.
 
 ## Good to know
 
